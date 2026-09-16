@@ -1,0 +1,33 @@
+[project]
+name = "dream-machines"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = "==3.12.*"
+dependencies = [
+    "aim",
+    "datasets",
+    "huggingface-hub",
+    "hydra-core",
+    "ipykernel",
+    "lerobot[dataset]",
+    "lightning",
+    "matplotlib",
+    "ruff>=0.16.7",
+    "torch",
+    "torchcodec",
+    "torchvision",
+    "transformers>=5.17.0",
+]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+extend-exclude = [
+    "notebooks",
+]

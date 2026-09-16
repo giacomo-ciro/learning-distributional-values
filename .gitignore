@@ -1,0 +1,10 @@
+.venv/
+*.egg-info/
+data/
+.aim/
+outputs/
+__pycache__/
+checkpoints/
+.ruff_cache
+hydra_logs/
+cache/

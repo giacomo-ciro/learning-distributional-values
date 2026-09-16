@@ -1,0 +1,3 @@
+name: model.SigLIPFFNN
+freeze: true  # false finetunes the backbone (no embedding cache)
+hidden_dim: 1024

@@ -1,0 +1,2 @@
+name: model.SigLIPLinear
+freeze: false  # false finetunes the backbone (no embedding cache)

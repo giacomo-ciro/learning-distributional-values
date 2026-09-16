@@ -1,0 +1,3 @@
+name: model.ResNet101FFNN
+freeze: false  # true trains only the head on cached ImageNet embeddings
+hidden_dim: 1024
