@@ -8,3 +8,4 @@ checkpoints/
 .ruff_cache
 hydra_logs/
 cache/
+multirun/

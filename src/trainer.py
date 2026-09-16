@@ -5,7 +5,11 @@ from typing import Any, cast
 
 import lightning as pl
 from aim.pytorch_lightning import AimLogger
-from lightning.pytorch.callbacks import ModelCheckpoint, TQDMProgressBar
+from lightning.pytorch.callbacks import (
+    LearningRateMonitor,
+    ModelCheckpoint,
+    TQDMProgressBar,
+)
 from omegaconf import DictConfig, OmegaConf
 
 
@@ -22,7 +26,9 @@ class StepProgressBar(TQDMProgressBar):
     def on_train_epoch_start(self, *_: Any) -> None:
         pass  # don't reset the bar every epoch
 
-    def on_train_batch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule, *_: Any) -> None:
+    def on_train_batch_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule, *_: Any
+    ) -> None:
         bar = self.train_progress_bar
         n = trainer.global_step
         if not bar.disable and self._should_update(n, bar.total):
@@ -49,7 +55,10 @@ def load_trainer(cfg: DictConfig) -> pl.Trainer:
     logger = AimLogger(run_name=cfg.run_name)
     params = cast(dict[str, Any], OmegaConf.to_container(cfg, resolve=True))
     logger.log_hyperparams(params)
-    callbacks: list[pl.Callback] = [StepProgressBar()]
+    callbacks: list[pl.Callback] = [
+        StepProgressBar(),
+        LearningRateMonitor(logging_interval="step"),
+    ]
     if cfg.trainer.enable_checkpointing:
         # a single best.ckpt, overwritten whenever val/loss improves
         checkpoint = ConfigCheckpoint(
@@ -68,7 +77,8 @@ def load_trainer(cfg: DictConfig) -> pl.Trainer:
         enable_checkpointing=cfg.trainer.enable_checkpointing,
         max_steps=cfg.trainer.max_steps,
         # val_check_interval counts batches, not optimizer steps: scale so validation stays every n steps
-        val_check_interval=cfg.trainer.val_every_n_steps * cfg.trainer.accumulate_grad_batches,
+        val_check_interval=cfg.trainer.val_every_n_steps
+        * cfg.trainer.accumulate_grad_batches,
         # count val_check_interval across epochs, not per epoch (needed when epochs are shorter)
         check_val_every_n_epoch=None,
         overfit_batches=cfg.trainer.overfit_train_batches,

@@ -37,9 +37,10 @@ def compute_values(episodes: pd.DataFrame) -> np.ndarray:
     # return (values / value_norm).astype(np.float32)
 
     # with clip, all bad frames map to -1 exactly
-    value_norm = lengths.max()-1
+    value_norm = lengths.max() - 1
 
     return (values / value_norm).astype(np.float32).clip(min=-1)
+
 
 class ValueDataset(Dataset):
     def __init__(self, frames: LeRobotDataset, indices: np.ndarray, bins: np.ndarray):
@@ -59,7 +60,6 @@ class ValueDataset(Dataset):
 
 
 class ValueDataModule(pl.LightningDataModule):
-
     def __init__(self, cfg: DictConfig):
         super().__init__()
         self.repo_id = "local/data"
@@ -74,11 +74,17 @@ class ValueDataModule(pl.LightningDataModule):
         self.datasets: dict[str, ValueDataset] = {}
         self.split_episodes: dict[str, np.ndarray] = {}  # sorted episode ids per split
         # per-frame arrays, indexed by absolute dataset index
-        self.values = np.empty(0, dtype=np.float32)  # normalised value, NaN for dropped frames
+        self.values = np.empty(
+            0, dtype=np.float32
+        )  # normalised value, NaN for dropped frames
         self.success = np.empty(0, dtype=bool)  # episode outcome
         self.progress = np.empty(0)  # fraction of the episode elapsed, t / T in [0, 1)
-        self.task = np.empty(0, dtype=object)  # episode tasks joined by " + ", "" for dropped frames
-        self.episode = np.empty(0, dtype=np.int64)  # episode index, -1 for dropped frames
+        self.task = np.empty(
+            0, dtype=object
+        )  # episode tasks joined by " + ", "" for dropped frames
+        self.episode = np.empty(
+            0, dtype=np.int64
+        )  # episode index, -1 for dropped frames
 
     def setup(self, stage: str | None = None) -> None:
 
@@ -99,19 +105,28 @@ class ValueDataModule(pl.LightningDataModule):
         lengths = episodes["length"].to_numpy()
         from_idx = episodes["dataset_from_index"].to_numpy()
         frame_idx = np.concatenate(
-            [np.arange(start, start + length) for start, length in zip(from_idx, lengths)]
+            [
+                np.arange(start, start + length)
+                for start, length in zip(from_idx, lengths)
+            ]
         )
         self.success = np.zeros(len(self.values), dtype=bool)
-        self.success[frame_idx] = np.repeat(episodes["success"].to_numpy().astype(bool), lengths)
+        self.success[frame_idx] = np.repeat(
+            episodes["success"].to_numpy().astype(bool), lengths
+        )
         self.progress = np.full(len(self.values), np.nan)
         self.progress[frame_idx] = np.concatenate(
             [np.arange(length) / length for length in lengths]
         )
-        episode_task = episodes["tasks"].map(lambda tasks: " + ".join(cast(np.ndarray, tasks)))
+        episode_task = episodes["tasks"].map(
+            lambda tasks: " + ".join(cast(np.ndarray, tasks))
+        )
         self.task = np.full(len(self.values), "", dtype=object)
         self.task[frame_idx] = np.repeat(episode_task.to_numpy(), lengths)
         self.episode = np.full(len(self.values), -1, dtype=np.int64)
-        self.episode[frame_idx] = np.repeat(episodes["episode_index"].to_numpy(), lengths)
+        self.episode[frame_idx] = np.repeat(
+            episodes["episode_index"].to_numpy(), lengths
+        )
 
         # random episode split: val and test episodes are held out, the rest is train
         assert self.val_episodes + self.test_episodes < len(episodes)

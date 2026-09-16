@@ -1,0 +1,4 @@
+_target_: torch.optim.lr_scheduler.ConstantLR
+_partial_: true  # the optimizer is passed in BaseModel.configure_optimizers
+factor: 1.0  # trainer.lr throughout
+total_iters: 0

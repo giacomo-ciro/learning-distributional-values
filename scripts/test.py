@@ -33,7 +33,11 @@ def load_split(cfg: DictConfig, split: str) -> tuple[ValueDataModule, ValueDatas
 
 @torch.no_grad()
 def predict_logits(
-    model: BaseModel, dataset: ValueDataset, batch_size: int, num_workers: int, device: str
+    model: BaseModel,
+    dataset: ValueDataset,
+    batch_size: int,
+    num_workers: int,
+    device: str,
 ) -> torch.Tensor:
     loader = DataLoader(dataset, batch_size=batch_size, num_workers=num_workers)
 
@@ -87,8 +91,12 @@ def evaluate_run(
     model = BaseModel.load_from_checkpoint(checkpoint_path).to(device).eval()
 
     # Distributional prediction -> expected value over the bin centres.
-    logits = predict_logits(model, dataset, cfg.data.batch_size, cfg.data.num_workers, device)
-    assert logits.shape[-1] == cfg.data.n_bins, "model trained with a different number of bins"
+    logits = predict_logits(
+        model, dataset, cfg.data.batch_size, cfg.data.num_workers, device
+    )
+    assert logits.shape[-1] == cfg.data.n_bins, (
+        "model trained with a different number of bins"
+    )
     pred = expected_value(logits)
 
     # Per-frame labels of the evaluated frames.
@@ -101,7 +109,9 @@ def evaluate_run(
     return {
         "r2": r2_score(pred, target),
         "cross_entropy": bin_cross_entropy(logits, bins),
-        "success_timestep_corr": success_timestep_correlation(pred, indices, episode, success),
+        "success_timestep_corr": success_timestep_correlation(
+            pred, indices, episode, success
+        ),
     }
 
 
@@ -113,7 +123,9 @@ def main(run_names: list[str], split: str) -> None:
     metrics = {}
     for run_name in run_names:
         checkpoint_path = CHECKPOINTS_ROOT / run_name / "best.ckpt"
-        metrics[run_name] = evaluate_run(checkpoint_path, datamodule, dataset, cfg, DEVICE)
+        metrics[run_name] = evaluate_run(
+            checkpoint_path, datamodule, dataset, cfg, DEVICE
+        )
 
     print(f"Metrics on the {split} split:")
     print(pd.DataFrame(metrics).T.to_string(float_format="{:.4f}".format))
@@ -125,7 +137,8 @@ if __name__ == "__main__":
         "majority",
         "siglip_linear",
         "resnet101_linear",
-        "resnet101_scratch"
+        "resnet101_scratch",
+        "resnet101_ffnn",
     ]
     SPLIT = "test"  # frames subsampled by data.eval_frame_stride
 

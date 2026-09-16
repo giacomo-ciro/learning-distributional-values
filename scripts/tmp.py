@@ -12,7 +12,9 @@ from data import CAMERAS
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def load_episodes(data_root: Path, tasks: list[str]) -> tuple[LeRobotDataset, pd.DataFrame]:
+def load_episodes(
+    data_root: Path, tasks: list[str]
+) -> tuple[LeRobotDataset, pd.DataFrame]:
     frames = LeRobotDataset("local/data", root=data_root)
     episode_table = frames.meta.episodes
     assert episode_table is not None
@@ -37,7 +39,9 @@ def load_early_frame(
     # random frame t in the first `horizon` fraction of the episode (at least frame 0)
     n_early_frames = max(1, int(horizon * episode["length"]))
     t = int(rng.integers(n_early_frames))
-    frame = cast(dict[str, torch.Tensor], frames[int(episode["dataset_from_index"]) + t])
+    frame = cast(
+        dict[str, torch.Tensor], frames[int(episode["dataset_from_index"]) + t]
+    )
 
     # cameras side by side: (H, n_cameras * W, 3)
     images = [frame[camera].permute(1, 2, 0).numpy() for camera in CAMERAS]
@@ -78,7 +82,9 @@ def plot_grid(
 
     # camera order is the same in every image
     fig.suptitle(" | ".join(CAMERAS), fontsize=13, y=1, va="top")
-    fig.tight_layout(rect=(0, 0, 1, 1 - 0.4 / fig.get_figheight()))  # 0.4 in for the suptitle
+    fig.tight_layout(
+        rect=(0, 0, 1, 1 - 0.4 / fig.get_figheight())
+    )  # 0.4 in for the suptitle
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=80)
     plt.close(fig)

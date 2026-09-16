@@ -1,9 +1,10 @@
 defaults:
   - _self_
-  - model: siglip_linear  # random, majority, resnet101_scratch, {resnet101,siglip}_{linear,ffnn}
+  - model: resnet101_ffnn  # random, majority, resnet101_scratch, {resnet101,siglip}_{linear,ffnn}
+  - scheduler: constant  # constant, one_cycle
   - debug: null
 
-run_name: siglip_linear_ft
+run_name: resnet101_ffnn
 seed: 42
 resume_from_ckpt: null  # e.g. debug/best.ckpt, null trains from scratch
 
@@ -14,18 +15,18 @@ data:
     test: 100
   n_bins: 201
   eval_frame_stride: 10  # train uses all
-  batch_size: 4
+  batch_size: 16
   num_workers: 16
 
 trainer:
   lr: 3.0e-4
-  max_steps: 1000
-  val_every_n_steps: 100
-  log_every_n_steps: 10
+  max_steps: 10000
+  val_every_n_steps: 1000
+  log_every_n_steps: 100
   precision: bf16-mixed
-  accumulate_grad_batches: 16  # optimizer step every n batches; must be 1 for the gradient-free baselines
+  accumulate_grad_batches: 4  # optimizer step every n batches; must be 1 for the gradient-free baselines
   overfit_train_batches: 0  # 0 disables
-  limit_val_batches: 1  # int = n batches, float = fraction
+  limit_val_batches: 1.0  # int = n batches, float = fraction
   limit_test_batches: 1.0
   enable_checkpointing: true  # saves checkpoints/<run_name>/best.ckpt and config.yaml
   

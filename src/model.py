@@ -9,7 +9,8 @@ import lightning as pl
 import numpy as np
 import torch
 import torch.nn.functional as F
-from hydra.utils import get_class
+from hydra.utils import get_class, instantiate
+from lightning.pytorch.utilities.types import OptimizerLRSchedulerConfig
 from omegaconf import DictConfig, OmegaConf
 from torch import nn
 from torchvision.models import ResNet101_Weights, resnet101
@@ -27,6 +28,7 @@ class BaseModel(pl.LightningModule):
         self.save_hyperparameters(ignore=["cfg"])
         self.n_bins = cfg.data.n_bins
         self.lr = cfg.trainer.lr
+        self.scheduler_cfg = cfg.scheduler
 
     @classmethod
     def load_from_checkpoint(cls, checkpoint_path: str | Path) -> BaseModel:
@@ -78,15 +80,24 @@ class BaseModel(pl.LightningModule):
         x, _ = batch
         return self(x)
 
-    def configure_optimizers(self) -> torch.optim.Optimizer:
+    def configure_optimizers(self) -> OptimizerLRSchedulerConfig:
         # frozen parameters (e.g. a pretrained backbone) are excluded
-        return torch.optim.AdamW(
+        optimizer = torch.optim.AdamW(
             (p for p in self.parameters() if p.requires_grad), lr=self.lr
         )
+        scheduler = instantiate(self.scheduler_cfg)(optimizer)
+        return {
+            "optimizer": optimizer,
+            # stepped per optimizer step; name is the metric logged by LearningRateMonitor
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "interval": "step",
+                "name": "train/lr",
+            },
+        }
 
 
 class GradientFreeBaseline(BaseModel):
-
     def __init__(self, cfg: DictConfig):
         super().__init__(cfg)
         self.automatic_optimization = False
@@ -135,7 +146,9 @@ class ResNet101Scratch(BaseModel):
         super().__init__(cfg)
         self.encoder = resnet101(weights=None, num_classes=self.n_bins)
         # 9 input channels: 3 RGB frames
-        self.encoder.conv1 = nn.Conv2d(9, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.encoder.conv1 = nn.Conv2d(
+            9, 64, kernel_size=7, stride=2, padding=3, bias=False
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x.flatten(1, 2)  # (B, 3, 3, H, W) -> (B, 9, H, W)
@@ -176,8 +189,12 @@ class ResNet101(Backbone):
         self.model = resnet101(weights=ResNet101_Weights.IMAGENET1K_V2)
         self.embed_dim = self.model.fc.in_features
         self.model.fc = nn.Identity()
-        self.register_buffer("mean", torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
-        self.register_buffer("std", torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
+        self.register_buffer(
+            "mean", torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
+        )
+        self.register_buffer(
+            "std", torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
+        )
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         # frames are already 224x224, the ImageNet resolution
@@ -268,7 +285,9 @@ class BackbonePlusHead(BaseModel):
 
         emb = torch.empty(len(paths), self.backbone.embed_dim, device=images.device)
         if hits:
-            emb[hits] = torch.from_numpy(np.stack([np.load(paths[i]) for i in hits])).to(emb)
+            emb[hits] = torch.from_numpy(
+                np.stack([np.load(paths[i]) for i in hits])
+            ).to(emb)
         if misses:
             new = self.backbone(images[misses])
             emb[misses] = new.to(emb)
@@ -276,8 +295,12 @@ class BackbonePlusHead(BaseModel):
                 paths[i].parent.mkdir(parents=True, exist_ok=True)
                 tmp = paths[i].with_suffix(".tmp")
                 with tmp.open("wb") as f:
-                    np.save(f, e)  # .npy has a 128-byte header, torch.save a much larger zip container
-                tmp.rename(paths[i])  # atomic: an interrupted write never leaves a corrupt entry
+                    np.save(
+                        f, e
+                    )  # .npy has a 128-byte header, torch.save a much larger zip container
+                tmp.rename(
+                    paths[i]
+                )  # atomic: an interrupted write never leaves a corrupt entry
         return emb
 
 
