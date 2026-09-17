@@ -6,7 +6,7 @@ At training time, this will be used to estimate the advantage of an action (diff
 
 We focus solely on the value function pretraining.
 
-We have a dataset of 2,144 episodes for an actuators unboxing task. Each sample is made of 3 frames from the left wrist, rigth wrist and top camera.
+We have a dataset of 800 episodes for an actuators unboxing task. Each sample is made of 3 frames from the left wrist, rigth wrist and top camera.
 
 In this project we have to first create the labels for each frame (value), and then train with supervised learning a model to predict the value from the frames. The original paper trains a Gemma 3 (670M) model. We try that and a simpler convnet, which might be enough for our simpler setting.
 

@@ -18,6 +18,11 @@ CAMERAS = (
 )
 
 
+def value_scale(episodes: pd.DataFrame) -> float:
+    # divisor applied to the raw step counts; a per-step reward of -1 is -1 / value_scale once normalised
+    return float(episodes["length"].max() - 1)
+
+
 def compute_values(episodes: pd.DataFrame) -> np.ndarray:
     # per-frame values indexed by absolute dataset index, NaN for frames of other episodes
     lengths = episodes["length"].to_numpy()
@@ -38,9 +43,7 @@ def compute_values(episodes: pd.DataFrame) -> np.ndarray:
     # return (values / value_norm).astype(np.float32)
 
     # with clip, all bad frames map to -1 exactly
-    value_norm = lengths.max() - 1
-
-    return (values / value_norm).astype(np.float32).clip(min=-1)
+    return (values / value_scale(episodes)).astype(np.float32).clip(min=-1)
 
 
 class ValueDataset(Dataset):

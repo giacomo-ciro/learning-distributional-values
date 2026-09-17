@@ -1,90 +1,129 @@
+import hashlib
 from pathlib import Path
 from typing import cast
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 import torch
-from lerobot.datasets import LeRobotDataset
+import torch.nn.functional as F
+from omegaconf import DictConfig, OmegaConf
+from torch.utils.data import DataLoader, Subset
 
-from data import CAMERAS
+from data import CAMERAS, ValueDataModule
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def load_episodes(
-    data_root: Path, tasks: list[str]
-) -> tuple[LeRobotDataset, pd.DataFrame]:
-    frames = LeRobotDataset("local/data", root=data_root)
-    episode_table = frames.meta.episodes
-    assert episode_table is not None
-    episodes = cast(pd.DataFrame, episode_table.to_pandas())
-
-    # keep episodes whose tasks are all in `tasks`
-    keep = episodes["tasks"].map(lambda episode_tasks: set(episode_tasks) <= set(tasks))
-    return frames, episodes[keep].reset_index(drop=True)
+def load_train_split(config_path: Path) -> ValueDataModule:
+    cfg = OmegaConf.load(config_path)
+    assert isinstance(cfg, DictConfig)
+    datamodule = ValueDataModule(cfg)
+    datamodule.setup()
+    return datamodule
 
 
-def sample_episodes(
-    episodes: pd.DataFrame, success: bool, n_episodes: int, rng: np.random.Generator
-) -> pd.DataFrame:
-    candidates = episodes[episodes["success"] == success]
-    rows = rng.choice(len(candidates), size=n_episodes, replace=False)
-    return candidates.iloc[rows]
+def cache_path(cache_dir: Path, image: torch.Tensor) -> Path:
+    # same content-hash key as BackbonePlusHead._encode_cached
+    key = hashlib.blake2b(image.numpy().tobytes(), digest_size=16).hexdigest()
+    return cache_dir / key[:2] / f"{key}.npy"
 
 
-def load_early_frame(
-    frames: LeRobotDataset, episode: pd.Series, horizon: float, rng: np.random.Generator
-) -> tuple[np.ndarray, int]:
-    # random frame t in the first `horizon` fraction of the episode (at least frame 0)
-    n_early_frames = max(1, int(horizon * episode["length"]))
-    t = int(rng.integers(n_early_frames))
-    frame = cast(
-        dict[str, torch.Tensor], frames[int(episode["dataset_from_index"]) + t]
+def build_pool(
+    datamodule: ValueDataModule,
+    cache_dir: Path,
+    pool_size: int,
+    num_workers: int,
+    rng: np.random.Generator,
+) -> tuple[torch.Tensor, list[tuple[int, int]]]:
+    """Decodes pool_size random train frames and keeps the camera images with a cached embedding.
+
+    The cache is keyed by frame content, so the frames must be decoded to find their embeddings.
+    Returns the (M, D) embeddings and the (dataset index, camera id) of each.
+    """
+    # random train frames, loaded without the value labels
+    train_indices = datamodule.datasets["train"].indices
+    frame_indices = rng.choice(
+        train_indices, size=min(pool_size, len(train_indices)), replace=False
+    )
+    frames = datamodule.datasets["train"].frames
+    loader = DataLoader(
+        Subset(frames, frame_indices.tolist()),
+        batch_size=32,
+        num_workers=num_workers,
+        collate_fn=lambda batch: batch,
     )
 
-    # cameras side by side: (H, n_cameras * W, 3)
-    images = [frame[camera].permute(1, 2, 0).numpy() for camera in CAMERAS]
-    return np.concatenate(images, axis=1), t
+    # keep only the camera images that were embedded during training
+    embeddings = []
+    keys = []
+    for batch in loader:
+        for frame in batch:
+            for camera_id, camera in enumerate(CAMERAS):
+                path = cache_path(cache_dir, frame[camera])
+                if not path.exists():
+                    continue
+                embeddings.append(np.load(path))
+                keys.append((int(frame["index"]), camera_id))
+
+    print(f"{len(keys)} cached images out of {3 * len(frame_indices)} pool images")
+    return torch.from_numpy(np.stack(embeddings)).float(), keys
 
 
-def load_samples(
-    frames: LeRobotDataset,
-    episodes: pd.DataFrame,
-    horizon: float,
+def find_neighbors(
+    embeddings: torch.Tensor,
+    episodes: np.ndarray,
+    n_queries: int,
+    k: int,
+    exclude_same_episode: bool,
     rng: np.random.Generator,
-) -> list[tuple[str, np.ndarray]]:
-    samples = []
-    for _, episode in episodes.iterrows():
-        image, t = load_early_frame(frames, episode, horizon, rng)
-        title = f"episode {episode['episode_index']}, t = {t} / {episode['length']}"
-        samples.append((title, image))
-    return samples
+) -> tuple[np.ndarray, np.ndarray]:
+    """Cosine k-NN of n_queries random pool images. Returns queries (Q,) and neighbors (Q, K)."""
+    queries = rng.choice(len(embeddings), size=n_queries, replace=False)
+
+    # cosine similarity of each query against the whole pool
+    normed = F.normalize(embeddings.cuda(), dim=-1)
+    similarity = normed[queries] @ normed.T
+
+    # never match the query itself, optionally nothing from its episode
+    similarity[torch.arange(n_queries), torch.from_numpy(queries)] = -torch.inf
+    if exclude_same_episode:
+        same_episode = torch.from_numpy(episodes[queries][:, None] == episodes[None])
+        similarity[same_episode.cuda()] = -torch.inf
+
+    neighbors = similarity.topk(k, dim=-1).indices
+    return queries, neighbors.cpu().numpy()
+
+
+def load_image(datamodule: ValueDataModule, key: tuple[int, int]) -> np.ndarray:
+    index, camera_id = key
+    frame = cast(dict[str, torch.Tensor], datamodule.datasets["train"].frames[index])
+    return frame[CAMERAS[camera_id]].permute(1, 2, 0).numpy().clip(0, 1)
 
 
 def plot_grid(
-    success_samples: list[tuple[str, np.ndarray]],
-    failure_samples: list[tuple[str, np.ndarray]],
+    datamodule: ValueDataModule,
+    keys: list[tuple[int, int]],
+    queries: np.ndarray,
+    neighbors: np.ndarray,
     path: Path,
 ) -> None:
-    # one row per pair: success on the left, failure on the right
-    n_rows = len(success_samples)
-    fig, axes = plt.subplots(n_rows, 2, figsize=(20, 3.6 * n_rows), squeeze=False)
-    for row in range(n_rows):
-        for col, (label, samples) in enumerate(
-            [("SUCCESS", success_samples), ("FAILURE", failure_samples)]
-        ):
-            title, image = samples[row]
-            ax = axes[row, col]
-            ax.imshow(image.clip(0, 1))
-            ax.set_title(f"{label}  {title}", fontsize=11)
+    # one row per query: the query in column 0, its neighbors by decreasing similarity after it
+    n_rows, k = neighbors.shape
+    fig, axes = plt.subplots(
+        n_rows, k + 1, figsize=(2.2 * (k + 1), 2.2 * n_rows), squeeze=False
+    )
+    for row, query in enumerate(queries):
+        ax = axes[row, 0]
+        ax.imshow(load_image(datamodule, keys[query]))
+        ax.axis("off")
+
+        for col in range(k):
+            neighbor = neighbors[row, col]
+            ax = axes[row, col + 1]
+            ax.imshow(load_image(datamodule, keys[neighbor]))
             ax.axis("off")
 
-    # camera order is the same in every image
-    fig.suptitle(" | ".join(CAMERAS), fontsize=13, y=1, va="top")
-    fig.tight_layout(
-        rect=(0, 0, 1, 1 - 0.4 / fig.get_figheight())
-    )  # 0.4 in for the suptitle
+    fig.tight_layout()
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=80)
     plt.close(fig)
@@ -92,38 +131,60 @@ def plot_grid(
 
 
 def main(
-    data_root: Path,
-    tasks: list[str],
-    n_episodes: int,
-    horizon: float,
+    config_path: Path,
+    cache_dir: Path,
+    pool_size: int,
+    n_queries: int,
+    k: int,
+    rows_per_figure: int,
+    exclude_same_episode: bool,
+    num_workers: int,
     seed: int,
     output_path: Path,
 ) -> None:
     rng = np.random.default_rng(seed)
-    frames, episodes = load_episodes(data_root, tasks)
+    datamodule = load_train_split(config_path)
 
-    # sample episodes of each outcome and one early frame from each
-    success_episodes = sample_episodes(episodes, True, n_episodes, rng)
-    failure_episodes = sample_episodes(episodes, False, n_episodes, rng)
-    success_samples = load_samples(frames, success_episodes, horizon, rng)
-    failure_samples = load_samples(frames, failure_episodes, horizon, rng)
+    # embeddings of the cached images among a random subset of train frames
+    embeddings, keys = build_pool(datamodule, cache_dir, pool_size, num_workers, rng)
+    episodes = np.array([datamodule.episode[index] for index, _ in keys])
 
-    plot_grid(success_samples, failure_samples, output_path)
+    queries, neighbors = find_neighbors(
+        embeddings, episodes, n_queries, k, exclude_same_episode, rng
+    )
+
+    # at most rows_per_figure queries per figure, saved as <stem>_<i>.png
+    for i, start in enumerate(range(0, n_queries, rows_per_figure)):
+        rows = slice(start, start + rows_per_figure)
+        path = output_path.with_name(f"{output_path.stem}_{i}{output_path.suffix}")
+        plot_grid(datamodule, keys, queries[rows], neighbors[rows], path)
 
 
 if __name__ == "__main__":
-    DATA_ROOT = REPO_ROOT / "data" / "actuator_unboxing_recap_mix_v1_success"
-    TASKS = ["Take an actuator from the box and place it in the tray"]
-    N_EPISODES = 16  # per outcome
-    HORIZON = 0.01  # sample within the first 1% of each episode
+    CONFIG_PATH = REPO_ROOT / "configs" / "train.yaml"  # only data.* is used
+    CACHE_DIR = REPO_ROOT / "cache" / "google" / "siglip-so400m-patch14-384"
+    POOL_SIZE = 30_000  # train frames decoded to search; the cache is keyed by content, huge value = whole train set (slow)
+    N_QUERIES = 6
+    K = 5  # columns: the query + K neighbors
+    ROWS_PER_FIGURE = 3  # queries beyond this spill into further figures
+    EXCLUDE_SAME_EPISODE = False  # True: neighbors come from other episodes only
+    NUM_WORKERS = 24
     SEED = 0
-    OUTPUT_PATH = REPO_ROOT / "outputs" / "early_frames_success_vs_failure_task2.png"
+    OUTPUT_PATH = (
+        REPO_ROOT
+        / "outputs"
+        / f"siglip_knn{'_other_episodes' if EXCLUDE_SAME_EPISODE else ''}.png"
+    )
 
     main(
-        data_root=DATA_ROOT,
-        tasks=TASKS,
-        n_episodes=N_EPISODES,
-        horizon=HORIZON,
+        config_path=CONFIG_PATH,
+        cache_dir=CACHE_DIR,
+        pool_size=POOL_SIZE,
+        n_queries=N_QUERIES,
+        k=K,
+        rows_per_figure=ROWS_PER_FIGURE,
+        exclude_same_episode=EXCLUDE_SAME_EPISODE,
+        num_workers=NUM_WORKERS,
         seed=SEED,
         output_path=OUTPUT_PATH,
     )
