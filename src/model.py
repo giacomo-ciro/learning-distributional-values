@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import cast
@@ -13,8 +14,17 @@ from hydra.utils import get_class, instantiate
 from lightning.pytorch.utilities.types import OptimizerLRSchedulerConfig
 from omegaconf import DictConfig, OmegaConf
 from torch import nn
+from torchmetrics import MeanSquaredError
 from torchvision.models import ResNet101_Weights, resnet101
 from transformers import SiglipVisionModel
+
+
+def hl_gauss_target(bins: torch.Tensor, n_bins: int, sigma: float) -> torch.Tensor:
+    # (B,) bin indices -> (B, n_bins) mass of a Gaussian centred on each bin, renormalised to the bins' support;
+    # in bin units: bin k spans [k - 0.5, k + 0.5] and sigma is in bin widths
+    edges = torch.arange(n_bins + 1, device=bins.device) - 0.5
+    cdf = torch.special.erf((edges - bins[:, None]) / (math.sqrt(2) * sigma))
+    return (cdf[:, 1:] - cdf[:, :-1]) / (cdf[:, -1:] - cdf[:, :1])
 
 
 class BaseModel(pl.LightningModule):
@@ -29,6 +39,16 @@ class BaseModel(pl.LightningModule):
         self.n_bins = cfg.data.n_bins
         self.lr = cfg.trainer.lr
         self.scheduler_cfg = cfg.scheduler
+        # checkpoints trained before the parameter existed used one-hot targets
+        self.hl_gauss_sigma: float = cfg.trainer.get("hl_gauss_sigma", 0.0)
+        # bin k has centre -1 + k / (n_bins - 1), see ValueDataModule.setup; not persistent: derived from n_bins
+        self.register_buffer(
+            "bin_centres", torch.linspace(-1, 0, self.n_bins), persistent=False
+        )
+        # one metric per stage, read back as f"{stage}_rmse": the epoch RMSE is not the mean of per-batch RMSEs
+        self.train_rmse = MeanSquaredError(squared=False)
+        self.val_rmse = MeanSquaredError(squared=False)
+        self.test_rmse = MeanSquaredError(squared=False)
 
     @classmethod
     def load_from_checkpoint(cls, checkpoint_path: str | Path) -> BaseModel:
@@ -48,15 +68,26 @@ class BaseModel(pl.LightningModule):
     ) -> torch.Tensor:
         x, y = batch
         logits = self(x)
-        loss = F.cross_entropy(logits, y)
+        target = (
+            hl_gauss_target(y, self.n_bins, self.hl_gauss_sigma)
+            if self.hl_gauss_sigma > 0
+            else y
+        )
+        # CE takes either (N,) with K-class indices or (N,K) with class probabilities
+        loss = F.cross_entropy(logits.float(), target)
         acc = (logits.argmax(dim=-1) == y).float().mean()
         # entropy of the batch-averaged prediction: near 0 = same prediction for every sample
-        batch_probs = logits.float().softmax(dim=-1).mean(dim=0)
+        probs = logits.float().softmax(dim=-1)
+        batch_probs = probs.mean(dim=0)
         batch_entropy = -(batch_probs * batch_probs.clamp_min(1e-12).log()).sum()
+        # expected value vs the target bin centre: off from the continuous value by at most half a bin
+        rmse = getattr(self, f"{stage}_rmse")
+        rmse(probs @ self.bin_centres, self.bin_centres[y])
 
         self.log(f"{stage}/loss", loss, prog_bar=True)
         self.log(f"{stage}/acc", acc)
         self.log(f"{stage}/batch_entropy", batch_entropy)
+        self.log(f"{stage}/rmse", rmse)
         return loss
 
     def training_step(

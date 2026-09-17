@@ -626,6 +626,7 @@ dependencies = [
     { name = "ruff" },
     { name = "torch" },
     { name = "torchcodec" },
+    { name = "torchmetrics" },
     { name = "torchvision" },
     { name = "transformers" },
 ]
@@ -643,6 +644,7 @@ requires-dist = [
     { name = "ruff", specifier = ">=0.16.7" },
     { name = "torch" },
     { name = "torchcodec" },
+    { name = "torchmetrics", specifier = ">=1.9.0" },
     { name = "torchvision" },
     { name = "transformers", specifier = ">=5.17.0" },
 ]
