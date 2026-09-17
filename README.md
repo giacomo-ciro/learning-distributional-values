@@ -33,6 +33,26 @@ Instead of regressing the value directly, the model predicts a distribution over
 
 > **Disclaimer:** these are preliminary results. Each model was scored on only 14 annotated pairs.
 
+## Reproducing the Results
+
+Download the dataset into `data/`, where [`configs/train.yaml`](configs/train.yaml) expects it:
+
+```bash
+hf download DreamMachines/20h_fullft_eval_success --repo-type dataset --local-dir data/20h_fullft_eval_success
+```
+
+Train the two models in Figure 2:
+
+```bash
+# ResNet101 (+HLGauss), σ = 0.75
+python scripts/train.py trainer.hl_gauss_sigma=0.75 run_name=resnet101_ffnn_hlgauss_0.75
+
+# ResNet101, one-hot cross-entropy
+python scripts/train.py trainer.hl_gauss_sigma=0.0 run_name=resnet101_ffnn
+```
+
+Then set `RUN_NAME` in [`scripts/annotate.py`](scripts/annotate.py) to each run and annotate the pairs with `python scripts/annotate.py`.
+
 ## Repository Structure
 
 ```
