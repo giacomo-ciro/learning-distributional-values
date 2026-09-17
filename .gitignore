@@ -9,3 +9,4 @@ checkpoints/
 hydra_logs/
 cache/
 multirun/
+dump/

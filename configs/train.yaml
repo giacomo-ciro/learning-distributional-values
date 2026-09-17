@@ -10,9 +10,7 @@ resume_from_ckpt: null  # e.g. debug/best.ckpt, null trains from scratch
 
 data:
   root: data/20h_fullft_eval_success
-  split:  # in episodes
-    val: 100
-    test: 100
+  split_dir: dump/splits/20h_fullft_eval_success  # {train,val,test}.txt with episode indices
   n_bins: 201
   eval_frame_stride: 10  # train uses all
   batch_size: 16

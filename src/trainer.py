@@ -64,6 +64,8 @@ def load_trainer(cfg: DictConfig) -> pl.Trainer:
         checkpoint = ConfigCheckpoint(
             cfg,
             dirpath=Path("checkpoints") / cfg.run_name,
+            # filename="last",
+            # monitor=None,
             filename="best",
             monitor="val/loss",
             mode="min",

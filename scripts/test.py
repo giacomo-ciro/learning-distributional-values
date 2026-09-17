@@ -17,11 +17,12 @@ DEVICE = "cuda"
 
 
 def load_data_config(config_path: Path) -> DictConfig:
-    # only the data section and seed are used: the hydra defaults list is not resolved
+    # only the data section is used: the hydra defaults list is not resolved
     cfg = OmegaConf.load(config_path)
     assert isinstance(cfg, DictConfig)
-    # the data root in the config is relative to the repo root
+    # the data root and split dir in the config are relative to the repo root
     cfg.data.root = str(REPO_ROOT / cfg.data.root)
+    cfg.data.split_dir = str(REPO_ROOT / cfg.data.split_dir)
     return cfg
 
 

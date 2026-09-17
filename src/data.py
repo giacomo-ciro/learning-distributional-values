@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import cast
 
 import lightning as pl
@@ -64,13 +65,12 @@ class ValueDataModule(pl.LightningDataModule):
         super().__init__()
         self.repo_id = "local/data"
         self.root = cfg.data.root
-        self.val_episodes = cfg.data.split.val
-        self.test_episodes = cfg.data.split.test
+        # {train,val,test}.txt, one episode index per line
+        self.split_dir = Path(cfg.data.split_dir)
         self.n_bins = cfg.data.n_bins
         self.eval_frame_stride = cfg.data.eval_frame_stride
         self.batch_size = cfg.data.batch_size
         self.num_workers = cfg.data.num_workers
-        self.seed = cfg.seed
         self.datasets: dict[str, ValueDataset] = {}
         self.split_episodes: dict[str, np.ndarray] = {}  # sorted episode ids per split
         # per-frame arrays, indexed by absolute dataset index
@@ -128,24 +128,25 @@ class ValueDataModule(pl.LightningDataModule):
             episodes["episode_index"].to_numpy(), lengths
         )
 
-        # random episode split: val and test episodes are held out, the rest is train
-        assert self.val_episodes + self.test_episodes < len(episodes)
-        shuffled = np.random.default_rng(self.seed).permutation(len(episodes))
-        val_ids, test_ids, train_ids = np.split(
-            shuffled, [self.val_episodes, self.val_episodes + self.test_episodes]
+        # fixed episode split read from disk: every episode is in exactly one split
+        episode_index = episodes["episode_index"].to_numpy()
+        split = {
+            name: np.loadtxt(self.split_dir / f"{name}.txt", dtype=np.int64, ndmin=1)
+            for name in ("train", "val", "test")
+        }
+        all_split_episodes = np.concatenate(list(split.values()))
+        assert np.array_equal(np.sort(all_split_episodes), np.sort(episode_index)), (
+            f"splits in {self.split_dir} do not partition the dataset episodes"
         )
-        split = {"train": train_ids, "val": val_ids, "test": test_ids}
 
         to_idx = episodes["dataset_to_index"].to_numpy()
-        episode_index = episodes["episode_index"].to_numpy()
-        for name, split_episode_ids in split.items():
-            self.split_episodes[name] = episode_index[np.sort(split_episode_ids)]
+        for name, split_episodes in split.items():
+            # positions of the split episodes in the episode table
+            split_episode_ids = np.flatnonzero(np.isin(episode_index, split_episodes))
+            self.split_episodes[name] = episode_index[split_episode_ids]
             stride = 1 if name == "train" else self.eval_frame_stride
             indices = np.concatenate(
-                [
-                    np.arange(from_idx[e], to_idx[e], stride)
-                    for e in np.sort(split_episode_ids)
-                ]
+                [np.arange(from_idx[e], to_idx[e], stride) for e in split_episode_ids]
             )
             self.datasets[name] = ValueDataset(frames, indices, bins)
 
