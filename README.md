@@ -23,13 +23,13 @@ Instead of regressing the value directly, the model predicts a distribution over
   <img src="dump/example.png" alt="Camera frames and predicted value over a successful episode" width="800">
 </p>
 
-*Predicted value over a successful validation episode. When the policy fails to grasp the actuator, the value drops sharply; once it recovers with a correct grasp, the value rises again.*
+**Figure 1: Value along an episode.** *Predicted value over a successful validation episode. When the policy fails to grasp the actuator, the value drops sharply; once it recovers with a correct grasp, the value rises again.*
 
 <p align="center">
   <img src="dump/eval.png" alt="Agreement between human judgement and predicted advantages" width="400">
 </p>
 
-*An annotator watches two intervals from the same episode, and picks the one that went better. Agreement is how often that pick matches the interval with the higher predicted advantage. Random is chance (50%). ResNet101 is trained with one-hot cross-entropy, and +HLGauss uses soft targets with σ = 0.75.*
+**Figure 2: Human agreement with predicted advantages.** *An annotator watches two intervals from the same episode, and picks the one that went better. Agreement is how often that pick matches the interval with the higher predicted advantage. Random is chance (50%). ResNet101 is trained with one-hot cross-entropy, and +HLGauss uses soft targets with σ = 0.75.*
 
 > **Disclaimer:** these are preliminary results. Each model was scored on only 14 annotated pairs.
 
