@@ -1,6 +1,6 @@
 # Project: Implementing the Value Function from the π*0.6 paper
 
-The goal is to implement the value function described in [π*0.6: a VLA that Learns from Experience](docs/arXiv-2511.14759v2/main.tex), which takes as input an observation (set of frames from different robot-mounted cameras) and returns the estimated value.
+The goal is to implement the value function described in [π*0.6: a VLA that Learns from Experience](https://arxiv.org/abs/2511.14759), which takes as input an observation (set of frames from different robot-mounted cameras) and returns the estimated value.
 
 At training time, this will be used to estimate the advantage of an action (difference of values at two states before an after the action) to be used as label during VLA pretraining so that bad trajectories can be exploited as well.
 
