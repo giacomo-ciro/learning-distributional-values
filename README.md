@@ -20,7 +20,7 @@ The binary outcome is turned into a dense reward. For an episode of length $T$, 
 
 where $C_{fail}$ is a large constant. The value target of each frame is its return-to-go, normalized to $[-1, 0]$, so the value is higher for states closer to a quick success.
 
-The key design choice that made training succeed was setting $C_{fail}$ to the maximum episode length in the training set. Returns from failed episodes then fall between $-2C$ and $-C$. We divide each return by $C_{fail}$ and clip values below $-1$, mapping every frame from a failed episode to $-1$. This is intentional: the model should learn that an episode will fail, not how long the operator will wait before unplugging the robot. This normalization substantially improves training and enables the model to learn a meaningful value function.
+The key design choice that made training succeed was setting $C_{fail}$ to the maximum episode length in the training set. Returns from failed episodes then fall between $-2C_{fail}$ and $-C_{fail}$. We divide each return by $C_{fail}$ and clip values below $-1$, mapping every frame from a failed episode to $-1$. This is intentional: the model should learn that an episode will fail, not how long the operator will wait before unplugging the robot. This normalization substantially improves training and enables the model to learn a meaningful value function.
 
 Instead of regressing the value directly, the model predicts a distribution over discretized value bins and is trained with cross-entropy against HL-Gauss soft targets [3]. The architecture is a ResNet-101 [2] backbone that encodes each frame independently. The features are then concatenated and fed to a two-layer GELU MLP that predicts the logits for the bins.
 
