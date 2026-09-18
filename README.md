@@ -1,29 +1,28 @@
-# Learning Distributional Value Functions
+<h1 align="center">Learning Distributional Value Functions</h1>
 
-Robot rollouts are easy to collect, but they usually come with a single binary label: whether the episode succeeded or failed. This project learns a dense, frame-level value function from such data, so that every state of every rollout, failed ones included, gets an estimate of how close it is to a quick success. The difference in value between two states gives the advantage of the actions in between, which can be used to exploit suboptimal data during VLA training, as done in π\*0.6 [1].
-
-We work on an actuator unboxing task, using the [`20h_fullft_eval_success`](https://huggingface.co/datasets/DreamMachines/20h_fullft_eval_success) dataset (800 rollouts, roughly half successful). Each observation is a set of three frames (left wrist, right wrist, top camera), and the model predicts the value of that state.
-
-The binary outcome is turned into a dense reward. For an episode of length $T$, the reward at step $t$ is
-
-```math
-r_t =
-\begin{cases}
-0 & \text{if } t = T \text{ and success} \\
--C & \text{if } t = T \text{ and failure} \\
--1 & \text{otherwise}
-\end{cases}
-```
-
-where $C$ is a large constant. The value target of each frame is its return-to-go, normalized to $[-1, 0]$, so the value is higher for states closer to a quick success.
-
-Instead of regressing the value directly, the model predicts a distribution over discretized value bins and is trained with cross-entropy against HL-Gauss soft targets [3]. The architecture is a ResNet-101 [2] backbone that encodes each frame independently. The features are then concatenated and fed to a two-layer GELU MLP that predicts the logits for the bins.
+> We learn a distributional value function from robot rollouts labeled only as successes or failures, producing dense, frame-level signals that make failed trajectories useful for VLA training.
 
 <p align="center">
   <img src="dump/example.png" alt="Camera frames and predicted value over a successful episode" width="800">
 </p>
 
 **Figure 1: Value along an episode.** *Predicted value over a successful validation episode. When the policy fails to grasp the actuator, the value drops sharply; once it recovers with a correct grasp, the value rises again.*
+
+Robot rollouts are easy to collect, but they usually come with a single binary label: whether the episode succeeded or failed. This project learns a dense, frame-level value function from such data, so that every state of every rollout, failed ones included, gets an estimate of how close it is to a quick success. The difference in value between two states gives the advantage of the actions in between, which can be used to exploit suboptimal data during VLA training, as done in π\*0.6 [1].
+
+We work on an [`actuator unboxing task`](https://huggingface.co/datasets/DreamMachines/20h_fullft_eval_success) (800 rollouts, roughly half successful). Each observation is a set of three frames (left wrist, right wrist, top camera), and the model predicts the value of that state.
+
+The binary outcome is turned into a dense reward. For an episode of length $T$, the reward at step $t$ is
+
+<p align="center">
+  <img src="dump/reward.png" alt="Reward definition: 0 at a successful terminal step, -C at a failed terminal step, and -1 otherwise" width="400">
+</p>
+
+where $C_{fail}$ is a large constant. The value target of each frame is its return-to-go, normalized to $[-1, 0]$, so the value is higher for states closer to a quick success.
+
+The key design choice that made training succeed was setting $C_{fail}$ to the maximum episode length in the training set. Returns from failed episodes then fall between $-2C$ and $-C$. We divide each return by $C_{fail}$ and clip values below $-1$, mapping every frame from a failed episode to $-1$. This is intentional: the model should learn that an episode will fail, not how long the operator will wait before unplugging the robot. This normalization substantially improves training and enables the model to learn a meaningful value function.
+
+Instead of regressing the value directly, the model predicts a distribution over discretized value bins and is trained with cross-entropy against HL-Gauss soft targets [3]. The architecture is a ResNet-101 [2] backbone that encodes each frame independently. The features are then concatenated and fed to a two-layer GELU MLP that predicts the logits for the bins.
 
 <p align="center">
   <img src="dump/eval.png" alt="Agreement between human judgement and predicted advantages" width="400">
