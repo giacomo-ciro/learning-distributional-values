@@ -10,7 +10,7 @@
 
 Robot rollouts are easy to collect, but they usually come with a single binary label: whether the episode succeeded or failed. This project learns a dense, frame-level value function from such data, so that every state of every rollout, failed ones included, gets an estimate of how close it is to a quick success. The difference in value between two states gives the advantage of the actions in between, which can be used to exploit suboptimal data during VLA training, as done in π\*0.6 [1].
 
-We work on an [`actuator unboxing task`](https://huggingface.co/datasets/DreamMachines/20h_fullft_eval_success) (800 rollouts, roughly half successful). Each observation is a set of three frames (left wrist, right wrist, top camera), and the model predicts the value of that state.
+We work on an [actuator unboxing task](https://dream-machines.eu/blog/pi05-fine-tuning)([800 rollouts](https://huggingface.co/datasets/DreamMachines/20h_fullft_eval_success), roughly half successful). Each observation is a set of three frames (left wrist, right wrist, top camera), and the model predicts the value of that state.
 
 The binary outcome is turned into a dense reward. For an episode of length $T$, the reward at step $t$ is
 
